@@ -12,6 +12,7 @@ htmlcov/
 # Env
 .env
 .venv/
+*.egg-info/
 
 # Data
 data/*

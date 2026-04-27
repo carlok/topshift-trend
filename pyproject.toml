@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "topshift-trend"
+version = "0.1.0"
+description = "Telegram bot that tracks new entries in GitHub monthly trending top list."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "apscheduler>=3.10.4",
+  "gtrending==0.5.1",
+  "pydantic-settings>=2.2.1",
+  "python-telegram-bot>=20.7,<21.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "mypy>=1.10.0",
+  "pytest>=8.2.0",
+  "pytest-asyncio>=0.23.6",
+  "pytest-cov>=5.0.0",
+  "ruff>=0.4.4",
+]
+
+[tool.setuptools.packages.find]
+include = ["bot*", "tests*"]
+
+[tool.pytest.ini_options]
+addopts = "--cov=bot --cov-report=term-missing --cov-fail-under=80"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "N", "RUF"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["bot"]
+

@@ -1,0 +1,10 @@
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Containerfile
+    user: "${PUID:-1000}:${PGID:-1000}"
+    env_file: .env
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
