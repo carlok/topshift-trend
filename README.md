@@ -14,7 +14,7 @@ and notifies subscribed chats.
 
 - `/start` subscribe this chat; first subscription receives full current top list.
 - `/stop` unsubscribe this chat.
-- `/check` run an immediate check and report to caller only.
+- `/check` run an immediate check and report to caller only without advancing the saved baseline.
 - `/top` fetch and show current top list to caller only.
 
 ## Configuration
@@ -83,4 +83,3 @@ podman run --rm -v "$PWD:/app" -w /app docker.io/library/python:3.12-slim \
 - `make lint` run ruff and mypy.
 - `make up` run `podman compose up -d`.
 - `make logs` follow compose logs.
-

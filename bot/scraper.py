@@ -83,5 +83,6 @@ async def fetch_top_repositories(
             continue
         if len(normalized) >= top_n:
             break
+    if len(normalized) < top_n:
+        raise RuntimeError(f"Incomplete trending snapshot: {len(normalized)}/{top_n}")
     return normalized
-

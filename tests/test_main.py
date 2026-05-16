@@ -106,8 +106,8 @@ class DummyScheduler:
         self.stopped = True
 
 
-async def test_runtime_run_check_persists(monkeypatch, tmp_path: Path) -> None:
-    """Runtime run_check should save state and return current/new repositories."""
+async def test_runtime_run_check_non_mutating_by_default(monkeypatch, tmp_path: Path) -> None:
+    """Runtime run_check should fetch and diff without saving by default."""
     config = AppConfig(telegram_bot_token="token", data_dir=tmp_path, top_n=2)
     runtime = TopShiftRuntime(config)
     async def fake_fetch_top(*args: Any, **kwargs: Any) -> list[TrendingRepo]:
@@ -120,7 +120,23 @@ async def test_runtime_run_check_persists(monkeypatch, tmp_path: Path) -> None:
 
     result = await runtime.run_check()
     assert len(result.current) == 2
-    assert len(result.new_entries) == 2
+    assert result.new_entries == []
+    assert runtime.store.load_state() is None
+
+
+async def test_runtime_run_check_can_commit(monkeypatch, tmp_path: Path) -> None:
+    """Runtime run_check should save the fetched baseline when commit is requested."""
+    config = AppConfig(telegram_bot_token="token", data_dir=tmp_path, top_n=2)
+    runtime = TopShiftRuntime(config)
+
+    async def fake_fetch_top(*args: Any, **kwargs: Any) -> list[TrendingRepo]:
+        return [_repo("one", "a"), _repo("two", "b")]
+
+    monkeypatch.setattr("bot.main.fetch_top_repositories", fake_fetch_top)
+
+    result = await runtime.run_check(commit=True)
+    assert len(result.current) == 2
+    assert result.new_entries == []
     assert runtime.store.load_state() is not None
 
 
@@ -164,6 +180,7 @@ async def test_scheduled_check_notifies(monkeypatch, tmp_path: Path) -> None:
     """Scheduled check should notify subscribers for new entries."""
     config = AppConfig(telegram_bot_token="token", data_dir=tmp_path)
     runtime = TopShiftRuntime(config)
+    runtime.store.save_state([_repo("old", "repo")])
     runtime.store.save_subscribers({1})
 
     async def fake_fetch_top(*args: Any, **kwargs: Any) -> list[TrendingRepo]:
@@ -173,6 +190,36 @@ async def test_scheduled_check_notifies(monkeypatch, tmp_path: Path) -> None:
     app = type("App", (), {"bot_data": {"runtime": runtime}, "bot": DummyBot()})()
     await run_scheduled_check(app)
     assert app.bot.messages
+    state = runtime.store.load_state()
+    assert state is not None
+    assert state["top"][0]["owner"] == "new"
+
+
+async def test_scheduled_check_does_not_save_after_notification_failure(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Scheduled failures should leave the previous baseline intact for retry."""
+    config = AppConfig(telegram_bot_token="token", data_dir=tmp_path)
+    runtime = TopShiftRuntime(config)
+    runtime.store.save_state([_repo("old", "repo")])
+    runtime.store.save_subscribers({1})
+
+    async def fake_fetch_top(*args: Any, **kwargs: Any) -> list[TrendingRepo]:
+        return [_repo("new", "repo")]
+
+    async def fake_notify(*args: Any, **kwargs: Any) -> int:
+        return 0
+
+    monkeypatch.setattr("bot.main.fetch_top_repositories", fake_fetch_top)
+    monkeypatch.setattr("bot.main.notify_subscribers", fake_notify)
+    app = type("App", (), {"bot_data": {"runtime": runtime}, "bot": DummyBot()})()
+
+    await run_scheduled_check(app)
+
+    state = runtime.store.load_state()
+    assert state is not None
+    assert state["top"][0]["owner"] == "old"
 
 
 async def test_scheduler_hooks(monkeypatch, tmp_path: Path) -> None:
@@ -274,6 +321,31 @@ async def test_cmd_check_new_entries_summary(tmp_path: Path) -> None:
     assert "- b/r2" in bot.messages[-1][1]
 
 
+async def test_cmd_check_does_not_advance_saved_baseline(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Immediate caller-only checks should not consume future scheduled notifications."""
+    config = AppConfig(telegram_bot_token="token", data_dir=tmp_path)
+    runtime = TopShiftRuntime(config)
+    runtime.store.save_state([_repo("old", "repo")])
+    bot = DummyBot()
+    context = DummyContext(runtime=runtime, bot=bot)
+    update = DummyUpdate(effective_chat=DummyChat(id=111))
+
+    async def fake_fetch_top(*args: Any, **kwargs: Any) -> list[TrendingRepo]:
+        return [_repo("new", "repo")]
+
+    monkeypatch.setattr("bot.main.fetch_top_repositories", fake_fetch_top)
+
+    await cmd_check(update, context)
+
+    state = runtime.store.load_state()
+    assert state is not None
+    assert state["top"][0]["owner"] == "old"
+    assert "Found 1 new entry" in bot.messages[-1][1]
+
+
 def test_configure_logging_sets_transport_loggers(tmp_path: Path) -> None:
     """Logging setup should force noisy HTTP transport logs to WARNING."""
     config = AppConfig(telegram_bot_token="token", data_dir=tmp_path, log_level="DEBUG")
@@ -354,4 +426,3 @@ def test_main_bootstraps_and_runs(monkeypatch, tmp_path: Path) -> None:
 
     main()
     assert called == {"configured": True, "ran": True}
-

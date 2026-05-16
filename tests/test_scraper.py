@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from bot.scraper import fetch_top_repositories
 
 
@@ -43,3 +45,21 @@ async def test_fetch_top_repositories_normalizes_and_limits(monkeypatch) -> None
     assert repos[1].owner == "owner2"
     assert repos[1].repo == "repo2"
 
+
+async def test_fetch_top_repositories_rejects_incomplete_snapshot(monkeypatch) -> None:
+    """Incomplete snapshots should fail instead of becoming the new baseline."""
+
+    def fake_fetch_repos(*, since: str, language: str | None):
+        return [
+            {
+                "fullname": "owner1/repo1",
+                "stars": "1,234",
+                "description": "Repo one",
+                "url": "https://github.com/owner1/repo1",
+            }
+        ]
+
+    monkeypatch.setattr("bot.scraper.fetch_repos", fake_fetch_repos)
+
+    with pytest.raises(RuntimeError, match="Incomplete trending snapshot: 1/2"):
+        await fetch_top_repositories(since="monthly", top_n=2, language=None)

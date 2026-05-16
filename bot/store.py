@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
 from bot.scraper import TrendingRepo
+
+LOGGER = logging.getLogger(__name__)
 
 
 class JsonStore:
@@ -24,7 +27,11 @@ class JsonStore:
         """Load persisted state if present."""
         if not self.state_path.exists():
             return None
-        payload = json.loads(self.state_path.read_text(encoding="utf-8"))
+        try:
+            payload = json.loads(self.state_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            LOGGER.exception("Failed to decode state file at %s", self.state_path)
+            return None
         return cast(dict[str, Any], payload)
 
     def save_state(self, repos: list[TrendingRepo]) -> None:
@@ -39,7 +46,11 @@ class JsonStore:
         """Load subscribers set from disk."""
         if not self.subscribers_path.exists():
             return set()
-        payload = json.loads(self.subscribers_path.read_text(encoding="utf-8"))
+        try:
+            payload = json.loads(self.subscribers_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            LOGGER.exception("Failed to decode subscribers file at %s", self.subscribers_path)
+            return set()
         chat_ids = payload.get("chat_ids", [])
         return {int(chat_id) for chat_id in chat_ids}
 
@@ -72,7 +83,7 @@ class JsonStore:
     ) -> list[TrendingRepo]:
         """Return repositories that newly entered the top list."""
         if not previous_state or "top" not in previous_state:
-            return current
+            return []
 
         previous_keys: set[str] = set()
         for item in previous_state.get("top", []):
@@ -92,4 +103,3 @@ class JsonStore:
             encoding="utf-8",
         )
         tmp_path.replace(path)
-

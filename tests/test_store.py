@@ -18,10 +18,10 @@ def _repo(owner: str, repo: str) -> TrendingRepo:
     )
 
 
-def test_new_entries_first_run_returns_all(tmp_path: Path) -> None:
-    """When state is missing, every current repo is considered new."""
+def test_new_entries_first_run_returns_none(tmp_path: Path) -> None:
+    """When state is missing, bootstrap without treating all repos as new."""
     current = [_repo("one", "alpha"), _repo("two", "beta")]
-    assert JsonStore.new_entries(previous_state=None, current=current) == current
+    assert JsonStore.new_entries(previous_state=None, current=current) == []
 
 
 def test_new_entries_filters_existing_case_insensitive(tmp_path: Path) -> None:
@@ -44,3 +44,12 @@ def test_subscriber_add_remove_roundtrip(tmp_path: Path) -> None:
     assert store.remove_subscriber(123) is True
     assert store.remove_subscriber(123) is False
 
+
+def test_corrupted_json_loads_as_empty(tmp_path: Path) -> None:
+    """Corrupted JSON should not crash state or subscriber loads."""
+    store = JsonStore(tmp_path)
+    store.state_path.write_text("{", encoding="utf-8")
+    store.subscribers_path.write_text("{", encoding="utf-8")
+
+    assert store.load_state() is None
+    assert store.load_subscribers() == set()

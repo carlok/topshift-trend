@@ -47,8 +47,8 @@ class TopShiftRuntime:
         self.store = JsonStore(config.data_dir)
         self.scheduler: AsyncIOScheduler | None = None
 
-    async def run_check(self) -> CheckResult:
-        """Fetch top repositories, compute diff, persist new baseline."""
+    async def run_check(self, *, commit: bool = False) -> CheckResult:
+        """Fetch top repositories and compute diff, optionally persisting the baseline."""
         previous_state = self.store.load_state()
         current = await fetch_top_repositories(
             since=self.config.resolved_since(),
@@ -56,7 +56,8 @@ class TopShiftRuntime:
             language=self.config.resolved_language(),
         )
         new_entries = self.store.new_entries(previous_state, current)
-        self.store.save_state(current)
+        if commit:
+            self.store.save_state(current)
         return CheckResult(current=current, new_entries=new_entries)
 
 
@@ -90,6 +91,12 @@ async def run_scheduled_check(application: Any) -> None:
         sent = 0
         if result.new_entries:
             sent = await notify_subscribers(application.bot, subscribers, result.new_entries)
+            expected_notifications = len(subscribers) * len(result.new_entries)
+            if sent < expected_notifications:
+                raise RuntimeError(
+                    f"Only delivered {sent}/{expected_notifications} scheduled notifications"
+                )
+        runtime.store.save_state(result.current)
         LOGGER.info(
             "Scheduled check finished | current=%s | new=%s | notifications=%s",
             len(result.current),
@@ -129,7 +136,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 for item in state["top"][: runtime.config.top_n]
             ]
         else:
-            check = await runtime.run_check()
+            check = await runtime.run_check(commit=True)
             repos = check.current
         await send_to_chat(context.bot, chat_id, format_top_snapshot(repos))
     else:
@@ -260,4 +267,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
