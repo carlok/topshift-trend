@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from urllib.error import URLError
+
 import pytest
 
 from bot.scraper import fetch_top_repositories
@@ -63,3 +65,61 @@ async def test_fetch_top_repositories_rejects_incomplete_snapshot(monkeypatch) -
 
     with pytest.raises(RuntimeError, match="Incomplete trending snapshot: 1/2"):
         await fetch_top_repositories(since="monthly", top_n=2, language=None)
+
+
+async def test_fetch_top_repositories_uses_readme_when_description_missing(monkeypatch) -> None:
+    """Missing About text should fall back to a short README-derived summary."""
+
+    def fake_fetch_repos(*, since: str, language: str | None):
+        return [
+            {
+                "fullname": "owner/readme-repo",
+                "stars": 10,
+                "description": "",
+                "url": "https://github.com/owner/readme-repo",
+            }
+        ]
+
+    class FakeResponse:
+        def __enter__(self) -> FakeResponse:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def read(self, size: int) -> bytes:
+            return (
+                b"# readme-repo\n\n"
+                b"A small tool that turns project READMEs into useful summaries."
+            )
+
+    monkeypatch.setattr("bot.scraper.fetch_repos", fake_fetch_repos)
+    monkeypatch.setattr("bot.scraper.urlopen", lambda *args, **kwargs: FakeResponse())
+
+    repos = await fetch_top_repositories(since="monthly", top_n=1, language=None)
+
+    assert repos[0].description == "A small tool that turns project READMEs into useful summaries."
+
+
+async def test_fetch_top_repositories_guesses_when_readme_unavailable(monkeypatch) -> None:
+    """Missing About and README text should still produce a useful best-effort description."""
+
+    def fake_fetch_repos(*, since: str, language: str | None):
+        return [
+            {
+                "fullname": "owner/missing-about",
+                "stars": 10,
+                "description": "",
+                "url": "https://github.com/owner/missing-about",
+            }
+        ]
+
+    def fake_urlopen(*args: object, **kwargs: object):
+        raise URLError("not found")
+
+    monkeypatch.setattr("bot.scraper.fetch_repos", fake_fetch_repos)
+    monkeypatch.setattr("bot.scraper.urlopen", fake_urlopen)
+
+    repos = await fetch_top_repositories(since="monthly", top_n=1, language=None)
+
+    assert repos[0].description == "Project repository for missing about by owner."
