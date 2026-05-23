@@ -3,12 +3,22 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 
 from telegram import Bot
+from telegram.error import BadRequest, Forbidden
 
 from bot.scraper import TrendingRepo
 
 LOGGER = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class NotificationResult:
+    """Summary of a notification dispatch run."""
+
+    sent_count: int
+    dropped_subscribers: set[int]
 
 
 def format_new_entry_message(repo: TrendingRepo) -> str:
@@ -52,16 +62,27 @@ async def notify_subscribers(
     bot: Bot,
     subscribers: set[int],
     new_entries: list[TrendingRepo],
-) -> int:
-    """Dispatch new entry notifications to all subscribers."""
+) -> NotificationResult:
+    """Dispatch new entry notifications to all reachable subscribers."""
     sent_count = 0
+    dropped_subscribers: set[int] = set()
+    transient_failures: list[int] = []
     for chat_id in subscribers:
         for repo in new_entries:
             try:
                 await send_to_chat(bot, chat_id, format_new_entry_message(repo))
                 sent_count += 1
                 LOGGER.info("Notified chat_id=%s for %s/%s", chat_id, repo.owner, repo.repo)
+            except (BadRequest, Forbidden):
+                dropped_subscribers.add(chat_id)
+                LOGGER.exception("Dropping unreachable subscriber chat_id=%s", chat_id)
+                break
             except Exception:
+                transient_failures.append(chat_id)
                 LOGGER.exception("Failed to notify chat_id=%s", chat_id)
-    return sent_count
 
+    if transient_failures:
+        unique_failures = sorted(set(transient_failures))
+        raise RuntimeError(f"Transient notification failures for chats: {unique_failures}")
+
+    return NotificationResult(sent_count=sent_count, dropped_subscribers=dropped_subscribers)

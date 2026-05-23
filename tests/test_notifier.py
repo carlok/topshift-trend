@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import pytest
+from telegram.error import Forbidden
+
 from bot.notifier import format_new_entry_message, notify_subscribers
 from bot.scraper import TrendingRepo
 
@@ -45,8 +48,59 @@ async def test_notify_subscribers_dispatches(monkeypatch) -> None:
     )
 
     bot = FakeBot()
-    count = await notify_subscribers(bot=bot, subscribers={1, 2}, new_entries=[repo])
-    assert count == 2
+    result = await notify_subscribers(bot=bot, subscribers={1, 2}, new_entries=[repo])
+    assert result.sent_count == 2
+    assert result.dropped_subscribers == set()
     assert len(sent) == 2
     assert all("owner/repo" in text for _, text in sent)
 
+
+async def test_notify_subscribers_drops_unreachable_chat() -> None:
+    """Permanent Telegram failures should mark the chat for removal."""
+
+    class FakeBot:
+        async def send_message(
+            self,
+            chat_id: int,
+            text: str,
+            disable_web_page_preview: bool = False,
+        ):
+            if chat_id == 2:
+                raise Forbidden("bot was blocked by the user")
+
+    repo = TrendingRepo(
+        owner="owner",
+        repo="repo",
+        stars=123,
+        description="desc",
+        url="https://github.com/owner/repo",
+    )
+
+    result = await notify_subscribers(bot=FakeBot(), subscribers={1, 2}, new_entries=[repo])
+
+    assert result.sent_count == 1
+    assert result.dropped_subscribers == {2}
+
+
+async def test_notify_subscribers_raises_on_transient_failure() -> None:
+    """Unexpected send failures should abort so the scheduled check can retry."""
+
+    class FakeBot:
+        async def send_message(
+            self,
+            chat_id: int,
+            text: str,
+            disable_web_page_preview: bool = False,
+        ):
+            raise RuntimeError("network")
+
+    repo = TrendingRepo(
+        owner="owner",
+        repo="repo",
+        stars=123,
+        description="desc",
+        url="https://github.com/owner/repo",
+    )
+
+    with pytest.raises(RuntimeError, match="Transient notification failures"):
+        await notify_subscribers(bot=FakeBot(), subscribers={1}, new_entries=[repo])

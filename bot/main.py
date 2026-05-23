@@ -90,12 +90,14 @@ async def run_scheduled_check(application: Any) -> None:
         subscribers = runtime.store.load_subscribers()
         sent = 0
         if result.new_entries:
-            sent = await notify_subscribers(application.bot, subscribers, result.new_entries)
-            expected_notifications = len(subscribers) * len(result.new_entries)
-            if sent < expected_notifications:
-                raise RuntimeError(
-                    f"Only delivered {sent}/{expected_notifications} scheduled notifications"
-                )
+            notification_result = await notify_subscribers(
+                application.bot,
+                subscribers,
+                result.new_entries,
+            )
+            sent = notification_result.sent_count
+            for chat_id in notification_result.dropped_subscribers:
+                runtime.store.remove_subscriber(chat_id)
         runtime.store.save_state(result.current)
         LOGGER.info(
             "Scheduled check finished | current=%s | new=%s | notifications=%s",

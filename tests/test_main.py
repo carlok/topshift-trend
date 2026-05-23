@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from telegram.error import Forbidden
+
 from bot.config import AppConfig
 from bot.main import (
     CheckResult,
@@ -205,21 +207,63 @@ async def test_scheduled_check_does_not_save_after_notification_failure(
     runtime.store.save_state([_repo("old", "repo")])
     runtime.store.save_subscribers({1})
 
+    class FailingBot:
+        async def send_message(
+            self,
+            chat_id: int,
+            text: str,
+            disable_web_page_preview: bool = False,
+        ) -> None:
+            raise RuntimeError("network")
+
     async def fake_fetch_top(*args: Any, **kwargs: Any) -> list[TrendingRepo]:
         return [_repo("new", "repo")]
 
-    async def fake_notify(*args: Any, **kwargs: Any) -> int:
-        return 0
-
     monkeypatch.setattr("bot.main.fetch_top_repositories", fake_fetch_top)
-    monkeypatch.setattr("bot.main.notify_subscribers", fake_notify)
-    app = type("App", (), {"bot_data": {"runtime": runtime}, "bot": DummyBot()})()
+    app = type("App", (), {"bot_data": {"runtime": runtime}, "bot": FailingBot()})()
 
     await run_scheduled_check(app)
 
     state = runtime.store.load_state()
     assert state is not None
     assert state["top"][0]["owner"] == "old"
+
+
+async def test_scheduled_check_removes_unreachable_subscriber_and_saves(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """A dead subscriber should not freeze the scheduled baseline forever."""
+    config = AppConfig(telegram_bot_token="token", data_dir=tmp_path)
+    runtime = TopShiftRuntime(config)
+    runtime.store.save_state([_repo("old", "repo")])
+    runtime.store.save_subscribers({1, 2})
+
+    class PartlyFailingBot(DummyBot):
+        async def send_message(
+            self,
+            chat_id: int,
+            text: str,
+            disable_web_page_preview: bool = False,
+        ) -> None:
+            if chat_id == 2:
+                raise Forbidden("bot was blocked by the user")
+            await super().send_message(chat_id, text, disable_web_page_preview)
+
+    async def fake_fetch_top(*args: Any, **kwargs: Any) -> list[TrendingRepo]:
+        return [_repo("new", "repo")]
+
+    monkeypatch.setattr("bot.main.fetch_top_repositories", fake_fetch_top)
+    bot = PartlyFailingBot()
+    app = type("App", (), {"bot_data": {"runtime": runtime}, "bot": bot})()
+
+    await run_scheduled_check(app)
+
+    state = runtime.store.load_state()
+    assert state is not None
+    assert state["top"][0]["owner"] == "new"
+    assert runtime.store.load_subscribers() == {1}
+    assert bot.messages
 
 
 async def test_scheduler_hooks(monkeypatch, tmp_path: Path) -> None:
