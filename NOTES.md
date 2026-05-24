@@ -20,6 +20,5 @@ Trade-offs:
 ## Known limitations
 
 - If GitHub Trending format changes upstream, fetch calls may fail until `gtrending` is updated.
-- `/check` updates the saved baseline state after each run.
+- `/check` is caller-only and does not update the saved baseline state.
 - Telegram messages are plain text and can be split if top list content grows.
-
