@@ -53,3 +53,14 @@ def test_corrupted_json_loads_as_empty(tmp_path: Path) -> None:
 
     assert store.load_state() is None
     assert store.load_subscribers() == set()
+
+
+def test_malformed_subscriber_ids_are_ignored(tmp_path: Path) -> None:
+    """Malformed subscriber records should not prevent valid subscribers from loading."""
+    store = JsonStore(tmp_path)
+    store.subscribers_path.write_text(
+        '{"chat_ids": [123, "456", "bad", null]}',
+        encoding="utf-8",
+    )
+
+    assert store.load_subscribers() == {123, 456}
