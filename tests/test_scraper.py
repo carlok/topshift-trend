@@ -67,6 +67,18 @@ async def test_fetch_top_repositories_rejects_incomplete_snapshot(monkeypatch) -
         await fetch_top_repositories(since="monthly", top_n=2, language=None)
 
 
+async def test_fetch_top_repositories_rejects_non_positive_top_n(monkeypatch) -> None:
+    """Invalid top_n values should fail before fetching or returning a stray item."""
+
+    def fake_fetch_repos(*, since: str, language: str | None):
+        raise AssertionError("fetch should not run for invalid top_n")
+
+    monkeypatch.setattr("bot.scraper.fetch_repos", fake_fetch_repos)
+
+    with pytest.raises(ValueError, match="top_n must be at least 1"):
+        await fetch_top_repositories(since="monthly", top_n=0, language=None)
+
+
 async def test_fetch_top_repositories_uses_readme_when_description_missing(monkeypatch) -> None:
     """Missing About text should fall back to a short README-derived summary."""
 
