@@ -64,3 +64,11 @@ def test_malformed_subscriber_ids_are_ignored(tmp_path: Path) -> None:
     )
 
     assert store.load_subscribers() == {123, 456}
+
+
+def test_non_object_subscriber_payload_loads_as_empty(tmp_path: Path) -> None:
+    """Valid JSON with the wrong shape should not crash subscriber loading."""
+    store = JsonStore(tmp_path)
+    store.subscribers_path.write_text('["not", "an", "object"]', encoding="utf-8")
+
+    assert store.load_subscribers() == set()

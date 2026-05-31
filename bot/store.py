@@ -51,6 +51,9 @@ class JsonStore:
         except json.JSONDecodeError:
             LOGGER.exception("Failed to decode subscribers file at %s", self.subscribers_path)
             return set()
+        if not isinstance(payload, dict):
+            LOGGER.warning("Invalid subscribers payload at %s", self.subscribers_path)
+            return set()
         chat_ids = payload.get("chat_ids", [])
         if not isinstance(chat_ids, list):
             LOGGER.warning("Invalid subscribers payload at %s", self.subscribers_path)
