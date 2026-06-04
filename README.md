@@ -1,5 +1,7 @@
 # topshift-trend
 
+[Try the bot on Telegram](https://t.me/ghTopShift_bot).
+
 Telegram bot that tracks **new entries** in GitHub monthly trending top repositories
 and notifies subscribed chats.
 
