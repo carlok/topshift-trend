@@ -150,6 +150,8 @@ async def fetch_top_repositories(
     language: str | None = None,
 ) -> list[TrendingRepo]:
     """Fetch and normalize top trending repositories from gtrending."""
+    if top_n < 1:
+        raise ValueError("top_n must be at least 1")
 
     def _fetch() -> list[dict[str, Any]]:
         return cast(list[dict[str, Any]], fetch_repos(since=since, language=language))

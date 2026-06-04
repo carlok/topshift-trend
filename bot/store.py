@@ -51,8 +51,21 @@ class JsonStore:
         except json.JSONDecodeError:
             LOGGER.exception("Failed to decode subscribers file at %s", self.subscribers_path)
             return set()
+        if not isinstance(payload, dict):
+            LOGGER.warning("Invalid subscribers payload at %s", self.subscribers_path)
+            return set()
         chat_ids = payload.get("chat_ids", [])
-        return {int(chat_id) for chat_id in chat_ids}
+        if not isinstance(chat_ids, list):
+            LOGGER.warning("Invalid subscribers payload at %s", self.subscribers_path)
+            return set()
+
+        subscribers: set[int] = set()
+        for chat_id in chat_ids:
+            try:
+                subscribers.add(int(chat_id))
+            except (TypeError, ValueError):
+                LOGGER.warning("Skipping invalid subscriber chat_id=%r", chat_id)
+        return subscribers
 
     def save_subscribers(self, subscribers: set[int]) -> None:
         """Persist subscribers set to disk."""
