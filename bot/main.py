@@ -39,6 +39,43 @@ class CheckResult:
     new_entries: list[TrendingRepo]
 
 
+def repos_from_state(state: dict[str, Any], limit: int) -> list[TrendingRepo]:
+    """Convert valid persisted top-list entries back to TrendingRepo objects."""
+    top = state.get("top", [])
+    if not isinstance(top, list):
+        LOGGER.warning("Ignoring malformed state top payload")
+        return []
+
+    repos: list[TrendingRepo] = []
+    for item in top[:limit]:
+        if not isinstance(item, dict):
+            LOGGER.warning("Skipping malformed state entry=%r", item)
+            continue
+
+        owner = str(item.get("owner", "")).strip()
+        repo = str(item.get("repo", "")).strip()
+        if not owner or not repo:
+            LOGGER.warning("Skipping state entry without owner/repo: %r", item)
+            continue
+
+        try:
+            stars = int(item.get("stars", 0))
+        except (TypeError, ValueError):
+            LOGGER.warning("Defaulting malformed star count in state entry=%r", item)
+            stars = 0
+
+        repos.append(
+            TrendingRepo(
+                owner=owner,
+                repo=repo,
+                stars=stars,
+                description=str(item.get("description", "")),
+                url=str(item.get("url", "")),
+            )
+        )
+    return repos
+
+
 class TopShiftRuntime:
     """Runtime service coordinating scraping, diffing, and notifications."""
 
@@ -127,16 +164,10 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         state = runtime.store.load_state()
         if state and state.get("top"):
-            repos = [
-                TrendingRepo(
-                    owner=item["owner"],
-                    repo=item["repo"],
-                    stars=int(item.get("stars", 0)),
-                    description=str(item.get("description", "")),
-                    url=str(item.get("url", "")),
-                )
-                for item in state["top"][: runtime.config.top_n]
-            ]
+            repos = repos_from_state(state, runtime.config.top_n)
+            if not repos:
+                check = await runtime.run_check(commit=True)
+                repos = check.current
         else:
             check = await runtime.run_check(commit=True)
             repos = check.current

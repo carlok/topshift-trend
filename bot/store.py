@@ -32,6 +32,9 @@ class JsonStore:
         except json.JSONDecodeError:
             LOGGER.exception("Failed to decode state file at %s", self.state_path)
             return None
+        if not isinstance(payload, dict):
+            LOGGER.warning("Invalid state payload at %s", self.state_path)
+            return None
         return cast(dict[str, Any], payload)
 
     def save_state(self, repos: list[TrendingRepo]) -> None:

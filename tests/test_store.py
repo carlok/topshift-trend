@@ -72,3 +72,11 @@ def test_non_object_subscriber_payload_loads_as_empty(tmp_path: Path) -> None:
     store.subscribers_path.write_text('["not", "an", "object"]', encoding="utf-8")
 
     assert store.load_subscribers() == set()
+
+
+def test_non_object_state_payload_loads_as_empty(tmp_path: Path) -> None:
+    """Valid JSON with the wrong state shape should be ignored."""
+    store = JsonStore(tmp_path)
+    store.state_path.write_text('["not", "an", "object"]', encoding="utf-8")
+
+    assert store.load_state() is None
