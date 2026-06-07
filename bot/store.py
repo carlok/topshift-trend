@@ -103,6 +103,10 @@ class JsonStore:
 
         previous_keys: set[str] = set()
         for item in previous_state.get("top", []):
+            if not isinstance(item, dict):
+                LOGGER.warning("Skipping malformed state entry during diff: %r", item)
+                continue
+
             owner = str(item.get("owner", "")).strip()
             repo = str(item.get("repo", "")).strip()
             if owner and repo:
