@@ -15,6 +15,7 @@ README_BRANCHES = ("main", "master")
 README_FILENAMES = ("README.md", "README.rst", "README.txt", "README")
 README_TIMEOUT_SECONDS = 4
 DESCRIPTION_MAX_LENGTH = 220
+README_FALLBACK_CONCURRENCY = 4
 
 
 @dataclass(frozen=True)
@@ -116,6 +117,16 @@ def _fallback_description(owner: str, repo: str) -> str:
     return _readme_summary(owner, repo) or _guess_description(owner, repo)
 
 
+async def _ensure_description(repo: TrendingRepo, semaphore: asyncio.Semaphore) -> TrendingRepo:
+    """Fill a missing repository description without blocking other fallback lookups."""
+    if repo.description:
+        return repo
+
+    async with semaphore:
+        description = await asyncio.to_thread(_fallback_description, repo.owner, repo.repo)
+    return replace(repo, description=description)
+
+
 def _normalize(item: dict[str, Any]) -> TrendingRepo:
     """Normalize a gtrending item into a TrendingRepo object."""
     fullname = str(item.get("fullname") or "").strip()
@@ -163,12 +174,13 @@ async def fetch_top_repositories(
             repo = _normalize(item)
         except ValueError:
             continue
-        if not repo.description:
-            description = await asyncio.to_thread(_fallback_description, repo.owner, repo.repo)
-            repo = replace(repo, description=description)
         normalized.append(repo)
         if len(normalized) >= top_n:
             break
     if len(normalized) < top_n:
         raise RuntimeError(f"Incomplete trending snapshot: {len(normalized)}/{top_n}")
-    return normalized
+
+    semaphore = asyncio.Semaphore(README_FALLBACK_CONCURRENCY)
+    return await asyncio.gather(
+        *(_ensure_description(repo, semaphore) for repo in normalized)
+    )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from threading import Barrier
 from urllib.error import URLError
 
 import pytest
@@ -111,6 +112,45 @@ async def test_fetch_top_repositories_uses_readme_when_description_missing(monke
     repos = await fetch_top_repositories(since="monthly", top_n=1, language=None)
 
     assert repos[0].description == "A small tool that turns project READMEs into useful summaries."
+
+
+async def test_fetch_top_repositories_enriches_missing_descriptions_concurrently(
+    monkeypatch,
+) -> None:
+    """Missing descriptions should be enriched concurrently while preserving result order."""
+
+    def fake_fetch_repos(*, since: str, language: str | None):
+        return [
+            {
+                "fullname": "owner/first",
+                "stars": 10,
+                "description": "",
+                "url": "https://github.com/owner/first",
+            },
+            {
+                "fullname": "owner/second",
+                "stars": 20,
+                "description": "",
+                "url": "https://github.com/owner/second",
+            },
+        ]
+
+    barrier = Barrier(2)
+
+    def fake_fallback_description(owner: str, repo: str) -> str:
+        barrier.wait(timeout=1)
+        return f"{owner}/{repo} summary"
+
+    monkeypatch.setattr("bot.scraper.fetch_repos", fake_fetch_repos)
+    monkeypatch.setattr("bot.scraper._fallback_description", fake_fallback_description)
+
+    repos = await fetch_top_repositories(since="monthly", top_n=2, language=None)
+
+    assert [repo.repo for repo in repos] == ["first", "second"]
+    assert [repo.description for repo in repos] == [
+        "owner/first summary",
+        "owner/second summary",
+    ]
 
 
 async def test_fetch_top_repositories_guesses_when_readme_unavailable(monkeypatch) -> None:
