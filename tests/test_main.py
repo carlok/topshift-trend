@@ -23,6 +23,7 @@ from bot.main import (
     main,
     post_init,
     post_shutdown,
+    repos_from_state,
     run_scheduled_check,
 )
 from bot.scraper import TrendingRepo
@@ -176,6 +177,41 @@ async def test_start_stop_check_top_commands(monkeypatch, tmp_path: Path) -> Non
 
     await cmd_stop(update, context)
     assert runtime.store.load_subscribers() == set()
+
+
+async def test_start_skips_malformed_saved_state_entries(monkeypatch, tmp_path: Path) -> None:
+    """A bad persisted top entry should not crash first-time subscription."""
+    config = AppConfig(telegram_bot_token="token", data_dir=tmp_path)
+    runtime = TopShiftRuntime(config)
+    runtime.store.state_path.write_text(
+        (
+            '{"top": ['
+            '{"owner": "saved", "repo": "repo", "stars": "bad"},'
+            '{"owner": "", "repo": "missing-owner"},'
+            '"not-a-record"'
+            "]}"
+        ),
+        encoding="utf-8",
+    )
+    bot = DummyBot()
+    context = DummyContext(runtime=runtime, bot=bot)
+    update = DummyUpdate(effective_chat=DummyChat(id=123))
+
+    async def fail_fetch_top(*args: Any, **kwargs: Any) -> list[TrendingRepo]:
+        raise AssertionError("valid saved state should avoid fetching")
+
+    monkeypatch.setattr("bot.main.fetch_top_repositories", fail_fetch_top)
+
+    await cmd_start(update, context)
+
+    snapshot = bot.messages[-1][1]
+    assert "saved/repo" in snapshot
+    assert "★ 0" in snapshot
+
+
+def test_repos_from_state_rejects_malformed_top_payload() -> None:
+    """Malformed state top payload should return no reusable repositories."""
+    assert repos_from_state({"top": "not-a-list"}, limit=10) == []
 
 
 async def test_scheduled_check_notifies(monkeypatch, tmp_path: Path) -> None:

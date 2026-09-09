@@ -32,6 +32,9 @@ class JsonStore:
         except json.JSONDecodeError:
             LOGGER.exception("Failed to decode state file at %s", self.state_path)
             return None
+        if not isinstance(payload, dict):
+            LOGGER.warning("Invalid state payload at %s", self.state_path)
+            return None
         return cast(dict[str, Any], payload)
 
     def save_state(self, repos: list[TrendingRepo]) -> None:
@@ -100,6 +103,10 @@ class JsonStore:
 
         previous_keys: set[str] = set()
         for item in previous_state.get("top", []):
+            if not isinstance(item, dict):
+                LOGGER.warning("Skipping malformed state entry during diff: %r", item)
+                continue
+
             owner = str(item.get("owner", "")).strip()
             repo = str(item.get("repo", "")).strip()
             if owner and repo:

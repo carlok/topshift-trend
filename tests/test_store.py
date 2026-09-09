@@ -35,6 +35,21 @@ def test_new_entries_filters_existing_case_insensitive(tmp_path: Path) -> None:
     assert [item.key for item in diff] == ["two/beta"]
 
 
+def test_new_entries_ignores_malformed_previous_entries(tmp_path: Path) -> None:
+    """Malformed baseline rows should not crash scheduled or manual diff checks."""
+    previous = {
+        "checked_at": "2026-01-01T00:00:00+00:00",
+        "top": [
+            {"owner": "One", "repo": "Alpha"},
+            "not-a-record",
+            {"owner": "", "repo": "missing-owner"},
+        ],
+    }
+    current = [_repo("one", "alpha"), _repo("two", "beta")]
+    diff = JsonStore.new_entries(previous_state=previous, current=current)
+    assert [item.key for item in diff] == ["two/beta"]
+
+
 def test_subscriber_add_remove_roundtrip(tmp_path: Path) -> None:
     """Adding and removing subscribers should persist correctly."""
     store = JsonStore(tmp_path)
@@ -72,3 +87,11 @@ def test_non_object_subscriber_payload_loads_as_empty(tmp_path: Path) -> None:
     store.subscribers_path.write_text('["not", "an", "object"]', encoding="utf-8")
 
     assert store.load_subscribers() == set()
+
+
+def test_non_object_state_payload_loads_as_empty(tmp_path: Path) -> None:
+    """Valid JSON with the wrong state shape should be ignored."""
+    store = JsonStore(tmp_path)
+    store.state_path.write_text('["not", "an", "object"]', encoding="utf-8")
+
+    assert store.load_state() is None
