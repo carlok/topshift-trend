@@ -125,21 +125,28 @@ async def run_scheduled_check(application: Any) -> None:
     try:
         result = await runtime.run_check()
         subscribers = runtime.store.load_subscribers()
+        recent_keys = runtime.store.recent_notification_keys(
+            runtime.config.notification_cooldown_days
+        )
+        notification_entries = [repo for repo in result.new_entries if repo.key not in recent_keys]
         sent = 0
-        if result.new_entries:
+        if notification_entries:
             notification_result = await notify_subscribers(
                 application.bot,
                 subscribers,
-                result.new_entries,
+                notification_entries,
             )
             sent = notification_result.sent_count
             for chat_id in notification_result.dropped_subscribers:
                 runtime.store.remove_subscriber(chat_id)
+            if sent:
+                runtime.store.record_notifications(notification_entries)
         runtime.store.save_state(result.current)
         LOGGER.info(
-            "Scheduled check finished | current=%s | new=%s | notifications=%s",
+            "Scheduled check finished | current=%s | new=%s | suppressed=%s | notifications=%s",
             len(result.current),
             len(result.new_entries),
+            len(result.new_entries) - len(notification_entries),
             sent,
         )
     except Exception:

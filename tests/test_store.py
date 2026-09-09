@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from bot.scraper import TrendingRepo
@@ -95,3 +97,30 @@ def test_non_object_state_payload_loads_as_empty(tmp_path: Path) -> None:
     store.state_path.write_text('["not", "an", "object"]', encoding="utf-8")
 
     assert store.load_state() is None
+
+
+def test_recent_notification_keys_respects_cooldown(tmp_path: Path) -> None:
+    """Only repositories sent within the cooldown should be suppressed."""
+    store = JsonStore(tmp_path)
+    now = datetime.now(UTC)
+    store.notification_history_path.write_text(
+        json.dumps(
+            {
+                "sent_at": {
+                    "recent/repo": now.isoformat(),
+                    "old/repo": (now - timedelta(days=31)).isoformat(),
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert store.recent_notification_keys(30) == {"recent/repo"}
+
+
+def test_record_notifications_updates_history(tmp_path: Path) -> None:
+    """Sent repositories should be persisted under their normalized keys."""
+    store = JsonStore(tmp_path)
+    store.record_notifications([_repo("Owner", "Repo")])
+
+    assert store.recent_notification_keys(30) == {"owner/repo"}

@@ -36,6 +36,7 @@ Optional defaults are already set:
 - `CHECK_SCHEDULE_CRON=0 8 * * *`
 - `TRENDING_URL=https://github.com/trending?since=monthly`
 - `TOP_N=10`
+- `NOTIFICATION_COOLDOWN_DAYS=30`
 - `DATA_DIR=/data`
 - `LOG_LEVEL=INFO`
 - `PUID=1000`

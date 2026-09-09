@@ -21,6 +21,7 @@ class JsonStore:
         self.data_dir = data_dir
         self.state_path = data_dir / "state.json"
         self.subscribers_path = data_dir / "subscribers.json"
+        self.notification_history_path = data_dir / "notification_history.json"
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
     def load_state(self) -> dict[str, Any] | None:
@@ -74,6 +75,65 @@ class JsonStore:
         """Persist subscribers set to disk."""
         payload = {"chat_ids": sorted(subscribers)}
         self._atomic_write(self.subscribers_path, payload)
+
+    def recent_notification_keys(self, cooldown_days: int) -> set[str]:
+        """Return repository keys notified within the configured cooldown."""
+        if cooldown_days <= 0 or not self.notification_history_path.exists():
+            return set()
+
+        try:
+            payload = json.loads(self.notification_history_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            LOGGER.exception(
+                "Failed to decode notification history at %s", self.notification_history_path
+            )
+            return set()
+        if not isinstance(payload, dict):
+            LOGGER.warning("Invalid notification history at %s", self.notification_history_path)
+            return set()
+
+        sent_at = payload.get("sent_at", {})
+        if not isinstance(sent_at, dict):
+            LOGGER.warning("Invalid notification history at %s", self.notification_history_path)
+            return set()
+
+        cutoff = datetime.now(UTC).timestamp() - cooldown_days * 24 * 60 * 60
+        recent_keys: set[str] = set()
+        for key, value in sent_at.items():
+            if not isinstance(key, str) or not isinstance(value, str):
+                continue
+            try:
+                notified_at = datetime.fromisoformat(value)
+            except ValueError:
+                continue
+            if notified_at.tzinfo is None:
+                notified_at = notified_at.replace(tzinfo=UTC)
+            if notified_at.timestamp() >= cutoff:
+                recent_keys.add(key.lower())
+        return recent_keys
+
+    def record_notifications(self, repos: list[TrendingRepo]) -> None:
+        """Record repositories that were successfully sent to at least one subscriber."""
+        sent_at: dict[str, str] = {}
+        if self.notification_history_path.exists():
+            try:
+                payload = json.loads(self.notification_history_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                LOGGER.exception(
+                    "Failed to decode notification history at %s", self.notification_history_path
+                )
+                payload = {}
+            if isinstance(payload, dict) and isinstance(payload.get("sent_at"), dict):
+                sent_at = {
+                    key: value
+                    for key, value in payload["sent_at"].items()
+                    if isinstance(key, str) and isinstance(value, str)
+                }
+
+        now = datetime.now(UTC).isoformat()
+        for repo in repos:
+            sent_at[repo.key] = now
+        self._atomic_write(self.notification_history_path, {"sent_at": sent_at})
 
     def add_subscriber(self, chat_id: int) -> bool:
         """Add subscriber and return True only when newly added."""

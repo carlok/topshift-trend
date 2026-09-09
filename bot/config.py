@@ -22,6 +22,7 @@ class AppConfig:
     check_schedule_cron: str = "0 8 * * *"
     trending_url: str = "https://github.com/trending?since=monthly"
     top_n: int = 10
+    notification_cooldown_days: int = 30
     data_dir: Path = Path("/data")
     log_level: str = "INFO"
 
@@ -52,6 +53,7 @@ class EnvironmentSettings(BaseSettings):
     check_schedule_cron: str = "0 8 * * *"
     trending_url: str = "https://github.com/trending?since=monthly"
     top_n: int = 10
+    notification_cooldown_days: int = 30
     data_dir: Path = Path("/data")
     log_level: str = "INFO"
 
@@ -64,7 +66,7 @@ def load_config() -> AppConfig:
         check_schedule_cron=settings.check_schedule_cron,
         trending_url=settings.trending_url,
         top_n=settings.top_n,
+        notification_cooldown_days=settings.notification_cooldown_days,
         data_dir=settings.data_dir,
         log_level=settings.log_level,
     )
-

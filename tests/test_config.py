@@ -38,6 +38,7 @@ def test_load_config_from_environment(monkeypatch) -> None:
     monkeypatch.setenv("CHECK_SCHEDULE_CRON", "5 7 * * *")
     monkeypatch.setenv("TRENDING_URL", "https://github.com/trending?since=daily")
     monkeypatch.setenv("TOP_N", "7")
+    monkeypatch.setenv("NOTIFICATION_COOLDOWN_DAYS", "14")
     monkeypatch.setenv("DATA_DIR", "/tmp/topshift-data")
     monkeypatch.setenv("LOG_LEVEL", "DEBUG")
 
@@ -45,6 +46,6 @@ def test_load_config_from_environment(monkeypatch) -> None:
     assert config.telegram_bot_token == "bot-token"
     assert config.check_schedule_cron == "5 7 * * *"
     assert config.top_n == 7
+    assert config.notification_cooldown_days == 14
     assert config.data_dir == Path("/tmp/topshift-data")
     assert config.log_level == "DEBUG"
-

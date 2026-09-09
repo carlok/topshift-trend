@@ -231,6 +231,29 @@ async def test_scheduled_check_notifies(monkeypatch, tmp_path: Path) -> None:
     state = runtime.store.load_state()
     assert state is not None
     assert state["top"][0]["owner"] == "new"
+    assert runtime.store.recent_notification_keys(30) == {"new/repo"}
+
+
+async def test_scheduled_check_suppresses_recently_notified_repo(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """A re-entering repository should not be broadcast again during cooldown."""
+    config = AppConfig(telegram_bot_token="token", data_dir=tmp_path)
+    runtime = TopShiftRuntime(config)
+    runtime.store.save_state([_repo("old", "repo")])
+    runtime.store.save_subscribers({1})
+    runtime.store.record_notifications([_repo("new", "repo")])
+
+    async def fake_fetch_top(*args: Any, **kwargs: Any) -> list[TrendingRepo]:
+        return [_repo("new", "repo")]
+
+    monkeypatch.setattr("bot.main.fetch_top_repositories", fake_fetch_top)
+    app = type("App", (), {"bot_data": {"runtime": runtime}, "bot": DummyBot()})()
+
+    await run_scheduled_check(app)
+
+    assert app.bot.messages == []
 
 
 async def test_scheduled_check_does_not_save_after_notification_failure(
