@@ -19,6 +19,8 @@ class NotificationResult:
 
     sent_count: int
     dropped_subscribers: set[int]
+    delivered_by_chat: dict[int, tuple[TrendingRepo, ...]]
+    transient_failed_subscribers: set[int]
 
 
 def format_new_entry_message(repo: TrendingRepo) -> str:
@@ -62,27 +64,44 @@ async def notify_subscribers(
     bot: Bot,
     subscribers: set[int],
     new_entries: list[TrendingRepo],
+    *,
+    skip_keys_by_chat: dict[int, set[str]] | None = None,
 ) -> NotificationResult:
-    """Dispatch new entry notifications to all reachable subscribers."""
+    """Dispatch new entry notifications to all reachable subscribers.
+
+    Transient send failures are returned in the result instead of raising, so
+    callers can persist successful deliveries before retrying the rest.
+    """
     sent_count = 0
     dropped_subscribers: set[int] = set()
-    transient_failures: list[int] = []
+    transient_failed_subscribers: set[int] = set()
+    delivered_by_chat: dict[int, list[TrendingRepo]] = {}
+    skip_keys_by_chat = skip_keys_by_chat or {}
+
     for chat_id in subscribers:
+        skip_keys = skip_keys_by_chat.get(chat_id, set())
         for repo in new_entries:
+            if repo.key in skip_keys:
+                continue
             try:
                 await send_to_chat(bot, chat_id, format_new_entry_message(repo))
                 sent_count += 1
+                delivered_by_chat.setdefault(chat_id, []).append(repo)
                 LOGGER.info("Notified chat_id=%s for %s/%s", chat_id, repo.owner, repo.repo)
             except (BadRequest, Forbidden):
                 dropped_subscribers.add(chat_id)
                 LOGGER.exception("Dropping unreachable subscriber chat_id=%s", chat_id)
                 break
             except Exception:
-                transient_failures.append(chat_id)
+                transient_failed_subscribers.add(chat_id)
                 LOGGER.exception("Failed to notify chat_id=%s", chat_id)
+                break
 
-    if transient_failures:
-        unique_failures = sorted(set(transient_failures))
-        raise RuntimeError(f"Transient notification failures for chats: {unique_failures}")
-
-    return NotificationResult(sent_count=sent_count, dropped_subscribers=dropped_subscribers)
+    return NotificationResult(
+        sent_count=sent_count,
+        dropped_subscribers=dropped_subscribers,
+        delivered_by_chat={
+            chat_id: tuple(repos) for chat_id, repos in delivered_by_chat.items()
+        },
+        transient_failed_subscribers=transient_failed_subscribers,
+    )

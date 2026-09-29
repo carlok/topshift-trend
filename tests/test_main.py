@@ -288,6 +288,53 @@ async def test_scheduled_check_does_not_save_after_notification_failure(
     assert state["top"][0]["owner"] == "old"
 
 
+async def test_scheduled_check_partial_success_does_not_resend_delivered_link(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """A link already delivered before a transient failure must not resend next day."""
+    config = AppConfig(telegram_bot_token="token", data_dir=tmp_path)
+    runtime = TopShiftRuntime(config)
+    runtime.store.save_state([_repo("old", "repo")])
+    runtime.store.save_subscribers({1})
+
+    class PartialBot(DummyBot):
+        fail_owner: str | None = "second"
+
+        async def send_message(
+            self,
+            chat_id: int,
+            text: str,
+            disable_web_page_preview: bool = False,
+        ) -> None:
+            if self.fail_owner and f"{self.fail_owner}/repo" in text:
+                raise RuntimeError("network blip")
+            await super().send_message(chat_id, text, disable_web_page_preview)
+
+    async def fake_fetch_top(*args: Any, **kwargs: Any) -> list[TrendingRepo]:
+        return [_repo("first", "repo"), _repo("second", "repo")]
+
+    monkeypatch.setattr("bot.main.fetch_top_repositories", fake_fetch_top)
+    day1_bot = PartialBot()
+    app = type("App", (), {"bot_data": {"runtime": runtime}, "bot": day1_bot})()
+
+    await run_scheduled_check(app)
+
+    assert any("first/repo" in text for _, text in day1_bot.messages)
+    assert not any("second/repo" in text for _, text in day1_bot.messages)
+    state = runtime.store.load_state()
+    assert state is not None
+    assert state["top"][0]["owner"] == "old"
+
+    day2_bot = PartialBot()
+    day2_bot.fail_owner = None
+    app2 = type("App", (), {"bot_data": {"runtime": runtime}, "bot": day2_bot})()
+    await run_scheduled_check(app2)
+
+    assert not any("first/repo" in text for _, text in day2_bot.messages)
+    assert any("second/repo" in text for _, text in day2_bot.messages)
+
+
 async def test_scheduled_check_removes_unreachable_subscriber_and_saves(
     monkeypatch,
     tmp_path: Path,

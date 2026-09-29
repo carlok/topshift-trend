@@ -124,3 +124,13 @@ def test_record_notifications_updates_history(tmp_path: Path) -> None:
     store.record_notifications([_repo("Owner", "Repo")])
 
     assert store.recent_notification_keys(30) == {"owner/repo"}
+
+
+def test_record_chat_notifications_are_scoped_per_chat(tmp_path: Path) -> None:
+    """Per-chat delivery history should suppress only for that subscriber."""
+    store = JsonStore(tmp_path)
+    store.record_chat_notifications({1: [_repo("first", "repo")]})
+
+    assert store.recent_chat_notification_keys(30, 1) == {"first/repo"}
+    assert store.recent_chat_notification_keys(30, 2) == set()
+    assert store.recent_notification_keys(30) == set()

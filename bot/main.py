@@ -125,28 +125,59 @@ async def run_scheduled_check(application: Any) -> None:
     try:
         result = await runtime.run_check()
         subscribers = runtime.store.load_subscribers()
-        recent_keys = runtime.store.recent_notification_keys(
-            runtime.config.notification_cooldown_days
-        )
+        cooldown_days = runtime.config.notification_cooldown_days
+        recent_keys = runtime.store.recent_notification_keys(cooldown_days)
         notification_entries = [repo for repo in result.new_entries if repo.key not in recent_keys]
         sent = 0
-        if notification_entries:
+        suppressed = len(result.new_entries) - len(notification_entries)
+        if notification_entries and subscribers:
+            skip_keys_by_chat = {
+                chat_id: recent_keys
+                | runtime.store.recent_chat_notification_keys(cooldown_days, chat_id)
+                for chat_id in subscribers
+            }
             notification_result = await notify_subscribers(
                 application.bot,
                 subscribers,
                 notification_entries,
+                skip_keys_by_chat=skip_keys_by_chat,
             )
             sent = notification_result.sent_count
             for chat_id in notification_result.dropped_subscribers:
                 runtime.store.remove_subscriber(chat_id)
-            if sent:
-                runtime.store.record_notifications(notification_entries)
+            if notification_result.delivered_by_chat:
+                runtime.store.record_chat_notifications(notification_result.delivered_by_chat)
+            if notification_result.transient_failed_subscribers:
+                LOGGER.error(
+                    "Transient notification failures for chats: %s",
+                    sorted(notification_result.transient_failed_subscribers),
+                )
+                LOGGER.info(
+                    "Scheduled check deferred baseline | current=%s | new=%s | "
+                    "suppressed=%s | notifications=%s",
+                    len(result.current),
+                    len(result.new_entries),
+                    suppressed,
+                    sent,
+                )
+                return
+            delivered_repos = [
+                repo
+                for repos in notification_result.delivered_by_chat.values()
+                for repo in repos
+            ]
+            if delivered_repos:
+                # Deduplicate while preserving order for stable history writes.
+                unique_delivered = list(
+                    {repo.key: repo for repo in delivered_repos}.values()
+                )
+                runtime.store.record_notifications(unique_delivered)
         runtime.store.save_state(result.current)
         LOGGER.info(
             "Scheduled check finished | current=%s | new=%s | suppressed=%s | notifications=%s",
             len(result.current),
             len(result.new_entries),
-            len(result.new_entries) - len(notification_entries),
+            suppressed,
             sent,
         )
     except Exception:
