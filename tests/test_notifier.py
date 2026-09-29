@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 from telegram.error import Forbidden
 
 from bot.notifier import format_new_entry_message, notify_subscribers
@@ -82,8 +81,8 @@ async def test_notify_subscribers_drops_unreachable_chat() -> None:
     assert result.dropped_subscribers == {2}
 
 
-async def test_notify_subscribers_raises_on_transient_failure() -> None:
-    """Unexpected send failures should abort so the scheduled check can retry."""
+async def test_notify_subscribers_reports_transient_failure() -> None:
+    """Unexpected send failures should be reported without raising."""
 
     class FakeBot:
         async def send_message(
@@ -102,5 +101,47 @@ async def test_notify_subscribers_raises_on_transient_failure() -> None:
         url="https://github.com/owner/repo",
     )
 
-    with pytest.raises(RuntimeError, match="Transient notification failures"):
-        await notify_subscribers(bot=FakeBot(), subscribers={1}, new_entries=[repo])
+    result = await notify_subscribers(bot=FakeBot(), subscribers={1}, new_entries=[repo])
+    assert result.sent_count == 0
+    assert result.transient_failed_subscribers == {1}
+    assert result.delivered_by_chat == {}
+
+
+async def test_notify_subscribers_skips_keys_already_delivered() -> None:
+    """Per-chat skip keys should prevent resending a delivered repository."""
+    sent: list[str] = []
+
+    class FakeBot:
+        async def send_message(
+            self,
+            chat_id: int,
+            text: str,
+            disable_web_page_preview: bool = False,
+        ):
+            sent.append(text)
+
+    first = TrendingRepo(
+        owner="first",
+        repo="repo",
+        stars=1,
+        description="d",
+        url="https://github.com/first/repo",
+    )
+    second = TrendingRepo(
+        owner="second",
+        repo="repo",
+        stars=1,
+        description="d",
+        url="https://github.com/second/repo",
+    )
+
+    result = await notify_subscribers(
+        bot=FakeBot(),
+        subscribers={1},
+        new_entries=[first, second],
+        skip_keys_by_chat={1: {"first/repo"}},
+    )
+
+    assert result.sent_count == 1
+    assert any("second/repo" in text for text in sent)
+    assert not any("first/repo" in text for text in sent)
