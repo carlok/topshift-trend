@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Mapping
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Mapping, cast
+from typing import Any, cast
 
 from bot.scraper import TrendingRepo
 
