@@ -39,8 +39,6 @@ Optional defaults are already set:
 - `NOTIFICATION_COOLDOWN_DAYS=30`
 - `DATA_DIR=/data`
 - `LOG_LEVEL=INFO`
-- `PUID=1000`
-- `PGID=1000`
 
 ## Local run with Podman
 
@@ -53,33 +51,39 @@ Data is persisted to `./data` on the host and mounted to `/data` in the containe
 
 The production image is [Distroless](https://github.com/GoogleContainerTools/distroless) (`gcr.io/distroless/python3-debian12:nonroot`): no shell, package manager, or extra utilities. The bot starts with `python -m bot.main` only. [Docker Hardened Images](https://dhi.io/) publish Distroless-compatible Python bases when your registry provides them without extra authentication; this project uses the public Google image so anonymous pulls work without registry login.
 
-### Debugging the production container
+### Data directory ownership
 
-Distroless images cannot be shelled into with `podman exec … sh`. To inspect a running container, use ephemeral debug tooling instead:
+The container runs as the Distroless `nonroot` user (UID/GID **65532**); compose
+does not override it. A bind-mounted `./data` must therefore be owned by 65532
+inside the container's user namespace, or the bot cannot write its state files.
 
-```sh
-# Podman 5+ (attach a toolbox with shell and common tools)
-podman debug topshift-trend-bot-1
-
-# Docker Desktop / Docker Engine 23+ (temporary debug sidecar)
-docker debug topshift-trend-bot-1
-```
-
-From the host you can still read logs (`podman compose logs -f`).
-
-On macOS/Linux, set `PUID`/`PGID` in `.env` to your local user IDs so the
-container user can write mounted files. Compose overrides the image's default
-Distroless `nonroot` user (UID **65532**) with these values for local bind mounts:
+Rootless Podman (host UID is mapped to container root, so use `unshare`):
 
 ```bash
-echo "PUID=$(id -u)" >> .env
-echo "PGID=$(id -g)" >> .env
+mkdir -p data
+podman unshare chown -R 65532:65532 data
 ```
 
-If you already have permission issues, also run:
+Rootful Docker / Podman:
 
 ```bash
-chmod -R u+rwX data
+sudo chown -R 65532:65532 data
+```
+
+To delete files under `data` later with rootless Podman, use
+`podman unshare rm -rf data/<file>`.
+
+### Inspecting the production container
+
+Distroless images have no shell, so `podman exec … sh` does not work. Inspect
+from the host instead:
+
+```bash
+podman compose logs -f                      # or: podman logs -f <container>
+podman ps                                   # status, restarts
+podman inspect <container>                  # config, mounts, user, exit code
+podman cp <container>:/data ./data-snapshot # copy files out of the container
+podman unshare ls -ln data                  # bind-mount ownership as seen by the container
 ```
 
 ## Quality checks
