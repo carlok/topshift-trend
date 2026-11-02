@@ -3,6 +3,7 @@ services:
     build:
       context: .
       dockerfile: Containerfile
+      target: runtime
     user: "${PUID:-1000}:${PGID:-1000}"
     env_file: .env
     volumes:

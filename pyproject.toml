@@ -7,7 +7,7 @@ name = "topshift-trend"
 version = "0.1.0"
 description = "Telegram bot that tracks new entries in GitHub monthly trending top list."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 dependencies = [
   "apscheduler>=3.10.4",
   "gtrending==0.5.1",

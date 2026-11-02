@@ -51,8 +51,25 @@ podman compose logs -f
 
 Data is persisted to `./data` on the host and mounted to `/data` in the container.
 
+The production image is [Distroless](https://github.com/GoogleContainerTools/distroless) (`gcr.io/distroless/python3-debian12:nonroot`): no shell, package manager, or extra utilities. The bot starts with `python -m bot.main` only. [Docker Hardened Images](https://dhi.io/) publish Distroless-compatible Python bases when your registry provides them without extra authentication; this project uses the public Google image so anonymous pulls work without registry login.
+
+### Debugging the production container
+
+Distroless images cannot be shelled into with `podman exec … sh`. To inspect a running container, use ephemeral debug tooling instead:
+
+```sh
+# Podman 5+ (attach a toolbox with shell and common tools)
+podman debug topshift-trend-bot-1
+
+# Docker Desktop / Docker Engine 23+ (temporary debug sidecar)
+docker debug topshift-trend-bot-1
+```
+
+From the host you can still read logs (`podman compose logs -f`).
+
 On macOS/Linux, set `PUID`/`PGID` in `.env` to your local user IDs so the
-container user can write mounted files:
+container user can write mounted files. Compose overrides the image's default
+Distroless `nonroot` user (UID **65532**) with these values for local bind mounts:
 
 ```bash
 echo "PUID=$(id -u)" >> .env
