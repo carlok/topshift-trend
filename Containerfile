@@ -18,6 +18,7 @@ COPY bot ./bot
 
 RUN /usr/bin/python3 -m venv /build/.venv \
     && /build/.venv/bin/pip install --no-cache-dir . \
+    && /build/.venv/bin/pip install --no-cache-dir --upgrade pip==26.1.2 \
     && chmod -R a+rX /build
 
 FROM python:3.11-slim-bookworm AS runtime-prep
