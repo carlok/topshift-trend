@@ -12,7 +12,7 @@ dependencies = [
   "apscheduler>=3.10.4",
   "gtrending==0.5.1",
   "pydantic-settings>=2.2.1",
-  "python-telegram-bot>=20.7,<21.0",
+  "python-telegram-bot>=21.11,<22.0",
 ]
 
 [project.optional-dependencies]
