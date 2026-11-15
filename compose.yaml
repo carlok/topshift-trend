@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Containerfile
-    user: "${PUID:-1000}:${PGID:-1000}"
+      target: runtime
     env_file: .env
     volumes:
       - ./data:/data
