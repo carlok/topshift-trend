@@ -37,6 +37,7 @@ class CheckResult:
 
     current: list[TrendingRepo]
     new_entries: list[TrendingRepo]
+    previous_state: dict[str, Any] | None = None
 
 
 def repos_from_state(state: dict[str, Any], limit: int) -> list[TrendingRepo]:
@@ -76,6 +77,15 @@ def repos_from_state(state: dict[str, Any], limit: int) -> list[TrendingRepo]:
     return repos
 
 
+def _baseline_repos(state: dict[str, Any] | None) -> list[TrendingRepo]:
+    """Return every valid repository stored in a baseline snapshot."""
+    if not isinstance(state, dict):
+        return []
+    top = state.get("top", [])
+    limit = len(top) if isinstance(top, list) else 0
+    return repos_from_state(state, limit)
+
+
 class TopShiftRuntime:
     """Runtime service coordinating scraping, diffing, and notifications."""
 
@@ -95,7 +105,11 @@ class TopShiftRuntime:
         new_entries = self.store.new_entries(previous_state, current)
         if commit:
             self.store.save_state(current)
-        return CheckResult(current=current, new_entries=new_entries)
+        return CheckResult(
+            current=current,
+            new_entries=new_entries,
+            previous_state=previous_state,
+        )
 
 
 def configure_logging(config: AppConfig) -> None:
@@ -161,17 +175,14 @@ async def run_scheduled_check(application: Any) -> None:
                     sent,
                 )
                 return
-            delivered_repos = [
-                repo
-                for repos in notification_result.delivered_by_chat.values()
-                for repo in repos
-            ]
-            if delivered_repos:
-                # Deduplicate while preserving order for stable history writes.
-                unique_delivered = list(
-                    {repo.key: repo for repo in delivered_repos}.values()
-                )
-                runtime.store.record_notifications(unique_delivered)
+        # Cooldown is anchored to the last saved baseline, not only the original
+        # alert. A repo that stays listed longer than the cooldown, then drops
+        # out for a few days, would otherwise be announced again as new.
+        if runtime.store.load_subscribers():
+            seen = _baseline_repos(result.previous_state)
+            seen.extend(result.current)
+            if seen:
+                runtime.store.record_notifications(seen)
         runtime.store.save_state(result.current)
         LOGGER.info(
             "Scheduled check finished | current=%s | new=%s | suppressed=%s | notifications=%s",
@@ -210,6 +221,9 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             check = await runtime.run_check(commit=True)
             repos = check.current
         await send_to_chat(context.bot, chat_id, format_top_snapshot(repos))
+        if repos:
+            runtime.store.record_chat_notifications({chat_id: repos})
+            runtime.store.record_notifications(repos)
     else:
         await send_to_chat(context.bot, chat_id, "You are already subscribed.")
 

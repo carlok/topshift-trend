@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -231,7 +233,7 @@ async def test_scheduled_check_notifies(monkeypatch, tmp_path: Path) -> None:
     state = runtime.store.load_state()
     assert state is not None
     assert state["top"][0]["owner"] == "new"
-    assert runtime.store.recent_notification_keys(30) == {"new/repo"}
+    assert runtime.store.recent_notification_keys(30) == {"new/repo", "old/repo"}
 
 
 async def test_scheduled_check_suppresses_recently_notified_repo(
@@ -254,6 +256,100 @@ async def test_scheduled_check_suppresses_recently_notified_repo(
     await run_scheduled_check(app)
 
     assert app.bot.messages == []
+
+
+async def test_scheduled_check_does_not_repeat_repo_after_short_absence(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """A repo already on the baseline must not be announced when it briefly returns."""
+    config = AppConfig(telegram_bot_token="token", data_dir=tmp_path)
+    runtime = TopShiftRuntime(config)
+    runtime.store.save_subscribers({1})
+    runtime.store.save_state([_repo("famous", "repo"), _repo("other", "repo")])
+    fetches = [
+        [_repo("famous", "repo"), _repo("other", "repo")],
+        [_repo("other", "repo")],
+        [_repo("other", "repo"), _repo("famous", "repo")],
+    ]
+
+    async def fake_fetch_top(*args: Any, **kwargs: Any) -> list[TrendingRepo]:
+        return fetches.pop(0)
+
+    monkeypatch.setattr("bot.main.fetch_top_repositories", fake_fetch_top)
+    app = type("App", (), {"bot_data": {"runtime": runtime}, "bot": DummyBot()})()
+
+    await run_scheduled_check(app)
+    await run_scheduled_check(app)
+    await run_scheduled_check(app)
+
+    assert fetches == []
+    assert app.bot.messages == []
+
+
+async def test_scheduled_check_refreshes_cooldown_while_repo_stays_listed(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Staying on the saved list must renew the cooldown, not let it expire."""
+    config = AppConfig(telegram_bot_token="token", data_dir=tmp_path)
+    runtime = TopShiftRuntime(config)
+    runtime.store.save_subscribers({1})
+    runtime.store.save_state([_repo("famous", "repo")])
+    stale = datetime.now(UTC) - timedelta(days=31)
+    runtime.store.notification_history_path.write_text(
+        json.dumps({"sent_at": {"famous/repo": stale.isoformat()}}),
+        encoding="utf-8",
+    )
+    fetches = [
+        [_repo("famous", "repo")],
+        [_repo("other", "repo")],
+        [_repo("famous", "repo")],
+    ]
+
+    async def fake_fetch_top(*args: Any, **kwargs: Any) -> list[TrendingRepo]:
+        return fetches.pop(0)
+
+    monkeypatch.setattr("bot.main.fetch_top_repositories", fake_fetch_top)
+    app = type("App", (), {"bot_data": {"runtime": runtime}, "bot": DummyBot()})()
+
+    await run_scheduled_check(app)
+    assert runtime.store.recent_notification_keys(30) == {"famous/repo"}
+
+    await run_scheduled_check(app)
+    await run_scheduled_check(app)
+
+    assert fetches == []
+    assert not any("famous/repo" in text for _, text in app.bot.messages)
+
+
+async def test_start_snapshot_is_not_announced_again_after_reentry(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Repos shown in the /start snapshot count as seen for the cooldown."""
+    config = AppConfig(telegram_bot_token="token", data_dir=tmp_path)
+    runtime = TopShiftRuntime(config)
+    runtime.store.save_state([_repo("famous", "repo")])
+    bot = DummyBot()
+    context = DummyContext(runtime=runtime, bot=bot)
+    update = DummyUpdate(effective_chat=DummyChat(id=123))
+
+    await cmd_start(update, context)
+    assert runtime.store.recent_notification_keys(30) == {"famous/repo"}
+    assert runtime.store.recent_chat_notification_keys(30, 123) == {"famous/repo"}
+
+    runtime.store.save_state([_repo("other", "repo")])
+
+    async def fake_fetch_top(*args: Any, **kwargs: Any) -> list[TrendingRepo]:
+        return [_repo("other", "repo"), _repo("famous", "repo")]
+
+    monkeypatch.setattr("bot.main.fetch_top_repositories", fake_fetch_top)
+    app = type("App", (), {"bot_data": {"runtime": runtime}, "bot": DummyBot()})()
+
+    await run_scheduled_check(app)
+
+    assert not any("famous/repo" in text for _, text in app.bot.messages)
 
 
 async def test_scheduled_check_does_not_save_after_notification_failure(
@@ -286,6 +382,7 @@ async def test_scheduled_check_does_not_save_after_notification_failure(
     state = runtime.store.load_state()
     assert state is not None
     assert state["top"][0]["owner"] == "old"
+    assert runtime.store.recent_notification_keys(30) == set()
 
 
 async def test_scheduled_check_partial_success_does_not_resend_delivered_link(

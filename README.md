@@ -11,6 +11,7 @@ and notifies subscribed chats.
 - Fetches trending repositories through [`gtrending`](https://github.com/hedyhli/gtrending).
 - Compares current top list with the previously saved state.
 - Sends notifications only for repositories that **entered** the top list since the last check.
+- Keeps a repository quiet for `NOTIFICATION_COOLDOWN_DAYS` after it was last on that saved list, so a short drop out of the top list does not send it again.
 
 ## Commands
 

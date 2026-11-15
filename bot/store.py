@@ -89,7 +89,11 @@ class JsonStore:
         return self._keys_within_cooldown(sent_at, cooldown_days)
 
     def record_notifications(self, repos: list[TrendingRepo]) -> None:
-        """Record repositories that were successfully sent to at least one subscriber."""
+        """Remember repositories so they stay inside the notification cooldown.
+
+        Used both for alerts that were sent and for repositories that were on
+        the saved top list. A later short absence then does not look new.
+        """
         sent_at = self._load_sent_at()
         now = datetime.now(UTC).isoformat()
         for repo in repos:
