@@ -101,6 +101,7 @@ class TopShiftRuntime:
             since=self.config.resolved_since(),
             top_n=self.config.top_n,
             language=self.config.resolved_language(),
+            english_only=self.config.english_only,
         )
         new_entries = self.store.new_entries(previous_state, current)
         if commit:
@@ -255,6 +256,7 @@ async def cmd_top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             since=runtime.config.resolved_since(),
             top_n=runtime.config.top_n,
             language=runtime.config.resolved_language(),
+            english_only=runtime.config.english_only,
         )
         await send_to_chat(context.bot, update.effective_chat.id, format_top_snapshot(repos))
     except Exception:

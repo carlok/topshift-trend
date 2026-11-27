@@ -7,7 +7,7 @@ from urllib.error import URLError
 
 import pytest
 
-from bot.scraper import fetch_top_repositories
+from bot.scraper import fetch_top_repositories, is_primarily_english
 
 
 async def test_fetch_top_repositories_normalizes_and_limits(monkeypatch) -> None:
@@ -175,3 +175,43 @@ async def test_fetch_top_repositories_guesses_when_readme_unavailable(monkeypatc
     repos = await fetch_top_repositories(since="monthly", top_n=1, language=None)
 
     assert repos[0].description == "Project repository for missing about by owner."
+
+
+def test_is_primarily_english_detects_non_latin_scripts() -> None:
+    """Descriptions dominated by CJK or Cyrillic text should not pass the filter."""
+    assert is_primarily_english("A fast Python toolkit for APIs.")
+    assert not is_primarily_english("面向开发者的开源操作系统")
+    assert not is_primarily_english("Библиотека для Telegram ботов")
+    assert is_primarily_english("")  # too few letters
+
+
+async def test_fetch_top_repositories_skips_non_english_descriptions(monkeypatch) -> None:
+    """With english_only, the scraper should backfill from deeper trending results."""
+
+    def fake_fetch_repos(*, since: str, language: str | None):
+        return [
+            {
+                "fullname": "owner/cn",
+                "stars": 100,
+                "description": "中文开源项目说明",
+                "url": "https://github.com/owner/cn",
+            },
+            {
+                "fullname": "owner/en",
+                "stars": 90,
+                "description": "An English open-source utility",
+                "url": "https://github.com/owner/en",
+            },
+        ]
+
+    monkeypatch.setattr("bot.scraper.fetch_repos", fake_fetch_repos)
+    repos = await fetch_top_repositories(
+        since="monthly",
+        top_n=1,
+        language=None,
+        english_only=True,
+    )
+
+    assert len(repos) == 1
+    assert repos[0].owner == "owner"
+    assert repos[0].repo == "en"

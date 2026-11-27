@@ -25,6 +25,7 @@ class AppConfig:
     notification_cooldown_days: int = 30
     data_dir: Path = Path("/data")
     log_level: str = "INFO"
+    english_only: bool = True
 
     def resolved_since(self) -> str:
         """Return the trending time window derived from TRENDING_URL."""
@@ -56,6 +57,7 @@ class EnvironmentSettings(BaseSettings):
     notification_cooldown_days: int = 30
     data_dir: Path = Path("/data")
     log_level: str = "INFO"
+    english_only: bool = True
 
 
 def load_config() -> AppConfig:
@@ -69,4 +71,5 @@ def load_config() -> AppConfig:
         notification_cooldown_days=settings.notification_cooldown_days,
         data_dir=settings.data_dir,
         log_level=settings.log_level,
+        english_only=settings.english_only,
     )
