@@ -40,6 +40,7 @@ Optional defaults are already set:
 - `NOTIFICATION_COOLDOWN_DAYS=30`
 - `DATA_DIR=/data`
 - `LOG_LEVEL=INFO`
+- `ENGLISH_ONLY=true` — skip trending repositories whose description is not primarily Latin-script English text (set `false` to include all languages)
 
 ## Local run with Podman
 

@@ -16,6 +16,10 @@ README_FILENAMES = ("README.md", "README.rst", "README.txt", "README")
 README_TIMEOUT_SECONDS = 4
 DESCRIPTION_MAX_LENGTH = 220
 README_FALLBACK_CONCURRENCY = 4
+# Latin blocks commonly used for English repository text (no extra language-detection deps).
+_LATIN_LETTER_MAX_CODEPOINT = 0x024F
+_LATIN_EXTENDED_A_START = 0x1E00
+_LATIN_EXTENDED_A_END = 0x1EFF
 
 
 @dataclass(frozen=True)
@@ -42,6 +46,23 @@ def _to_int(value: Any) -> int:
         cleaned = value.replace(",", "").strip()
         return int(cleaned) if cleaned.isdigit() else 0
     return 0
+
+
+def is_primarily_english(text: str) -> bool:
+    """Return True when letter content is overwhelmingly Latin-script (English-capable)."""
+    letters = [char for char in text if char.isalpha()]
+    if len(letters) < 3:
+        return True
+
+    non_latin = 0
+    for char in letters:
+        codepoint = ord(char)
+        if codepoint <= _LATIN_LETTER_MAX_CODEPOINT:
+            continue
+        if _LATIN_EXTENDED_A_START <= codepoint <= _LATIN_EXTENDED_A_END:
+            continue
+        non_latin += 1
+    return (non_latin / len(letters)) < 0.15
 
 
 def _truncate_description(text: str, max_length: int = DESCRIPTION_MAX_LENGTH) -> str:
@@ -159,6 +180,8 @@ async def fetch_top_repositories(
     since: str,
     top_n: int,
     language: str | None = None,
+    *,
+    english_only: bool = False,
 ) -> list[TrendingRepo]:
     """Fetch and normalize top trending repositories from gtrending."""
     if top_n < 1:
@@ -168,19 +191,34 @@ async def fetch_top_repositories(
         return cast(list[dict[str, Any]], fetch_repos(since=since, language=language))
 
     raw_items = await asyncio.to_thread(_fetch)
-    normalized: list[TrendingRepo] = []
+    candidates: list[TrendingRepo] = []
     for item in raw_items:
         try:
             repo = _normalize(item)
         except ValueError:
             continue
-        normalized.append(repo)
-        if len(normalized) >= top_n:
-            break
-    if len(normalized) < top_n:
-        raise RuntimeError(f"Incomplete trending snapshot: {len(normalized)}/{top_n}")
+        candidates.append(repo)
+
+    if not english_only and len(candidates) < top_n:
+        raise RuntimeError(f"Incomplete trending snapshot: {len(candidates)}/{top_n}")
 
     semaphore = asyncio.Semaphore(README_FALLBACK_CONCURRENCY)
-    return await asyncio.gather(
-        *(_ensure_description(repo, semaphore) for repo in normalized)
-    )
+    selected: list[TrendingRepo] = []
+    index = 0
+    while len(selected) < top_n and index < len(candidates):
+        batch = candidates[index : index + top_n]
+        index += len(batch)
+        enriched = await asyncio.gather(
+            *(_ensure_description(repo, semaphore) for repo in batch)
+        )
+        for repo in enriched:
+            if english_only and not is_primarily_english(repo.description):
+                continue
+            selected.append(repo)
+            if len(selected) >= top_n:
+                break
+
+    if len(selected) < top_n:
+        label = "English" if english_only else "trending"
+        raise RuntimeError(f"Incomplete {label} snapshot: {len(selected)}/{top_n}")
+    return selected

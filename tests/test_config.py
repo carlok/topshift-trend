@@ -41,6 +41,7 @@ def test_load_config_from_environment(monkeypatch) -> None:
     monkeypatch.setenv("NOTIFICATION_COOLDOWN_DAYS", "14")
     monkeypatch.setenv("DATA_DIR", "/tmp/topshift-data")
     monkeypatch.setenv("LOG_LEVEL", "DEBUG")
+    monkeypatch.setenv("ENGLISH_ONLY", "false")
 
     config = load_config()
     assert config.telegram_bot_token == "bot-token"
@@ -49,3 +50,10 @@ def test_load_config_from_environment(monkeypatch) -> None:
     assert config.notification_cooldown_days == 14
     assert config.data_dir == Path("/tmp/topshift-data")
     assert config.log_level == "DEBUG"
+    assert config.english_only is False
+
+
+def test_english_only_defaults_true() -> None:
+    """English-only filtering should be enabled by default."""
+    config = AppConfig(telegram_bot_token="token")
+    assert config.english_only is True
